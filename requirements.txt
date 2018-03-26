@@ -1,0 +1,3 @@
+json-rpc==1.10.8
+requests
+coverage==4.5.1
