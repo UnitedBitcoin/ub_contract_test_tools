@@ -36,7 +36,7 @@ def call_rpc(method, params):
     return res['result']
 
 
-created_contract_addr = 'CONMKLWBdQGEgZYvi8Pv7u2qKSJ7b14gP5Kj'  # 'CON2gM95y4x4RTtd9rKhF9kjtuN54XxVqV7k'
+created_contract_addr = 'CONNCQeyJLxkQ77UvK49b99E6XyEEJqeuVnK'
 
 using_utxos = []
 
@@ -211,6 +211,17 @@ class UbtcContractTests(unittest.TestCase):
         print("gas used: ", invoke_res.get('gasCount'))
         self.assertTrue(invoke_res.get('gasCount') > 0)
         self.assertEqual(invoke_res.get('result'), 'hello')
+
+    def test_import_contract_by_address(self):
+        print("test_import_contract_by_address")
+        contract_addr = created_contract_addr
+        invoke_res = call_rpc('invokecontractoffline', [
+            config['MAIN_USER_ADDRESS'], contract_addr, "import_contract_by_address_demo", "%s" % contract_addr,
+        ])
+        print("invoke result: ", invoke_res)
+        print("gas used: ", invoke_res.get('gasCount'))
+        self.assertTrue(invoke_res.get('gasCount') > 0)
+        self.assertEqual('hello world', invoke_res['result'])
 
     def test_register_contract_testing(self):
         print("test_register_contract_testing")
