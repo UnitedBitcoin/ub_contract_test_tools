@@ -11,6 +11,7 @@ config = {
     'PORT': 60011,
     'MAIN_USER_ADDRESS': '1LkutqJx9zdRajJ7XRF28QCeaYT1BSzEgX',
     'PRECISION': 100000000,
+    'CONTRACT_VERSION': b'\x01',
 }
 
 headers = {
@@ -57,7 +58,7 @@ def get_utxo():
 def invoke_contract_api(caller_addr, contract_addr, api_name, api_arg):
     utxo = get_utxo()
     call_contract_script = CScript(
-        [b'\x01', api_arg.encode('utf8'), api_name.encode('utf8'), contract_addr.encode("utf8"),
+        [config['CONTRACT_VERSION'], api_arg.encode('utf8'), api_name.encode('utf8'), contract_addr.encode("utf8"),
          caller_addr.encode('utf8'),
          5000, 40, OP_CALL])
     call_contract_script_hex = call_contract_script.hex()
@@ -103,7 +104,7 @@ class UbtcContractTests(unittest.TestCase):
         utxo = get_utxo()
         bytecode_hex = read_contract_bytecode_hex("./test.gpc")
         register_contract_script = CScript(
-            [b'\x01', bytes().fromhex(bytecode_hex), config['MAIN_USER_ADDRESS'].encode('utf8'), 5000, 40, OP_CREATE])
+            [config['CONTRACT_VERSION'], bytes().fromhex(bytecode_hex), config['MAIN_USER_ADDRESS'].encode('utf8'), 5000, 40, OP_CREATE])
         create_contract_script = register_contract_script.hex()
         print("create_contract_script size %d" % len(create_contract_script))
         create_contract_raw_tx = call_rpc('createrawtransaction', [
@@ -291,7 +292,7 @@ class UbtcContractTests(unittest.TestCase):
         utxo = get_utxo()
         deposit_amount = 0.1
         call_contract_script = CScript(
-            [b'\x01', "memo123".encode('utf8'), int(deposit_amount * config['PRECISION']), contract_addr.encode("utf8"),
+            [config['CONTRACT_VERSION'], "memo123".encode('utf8'), int(deposit_amount * config['PRECISION']), contract_addr.encode("utf8"),
              config['MAIN_USER_ADDRESS'].encode('utf8'),
              5000, 40, OP_DEPOSIT_TO_CONTRACT])
         call_contract_script_hex = call_contract_script.hex()
@@ -326,7 +327,7 @@ class UbtcContractTests(unittest.TestCase):
         utxo = get_utxo()
         deposit_amount2 = 0.2
         call_contract_script = CScript(
-            [b'\x01', "memo123".encode('utf8'), int(deposit_amount2 * config['PRECISION']), contract_addr.encode("utf8"),
+            [config['CONTRACT_VERSION'], "memo123".encode('utf8'), int(deposit_amount2 * config['PRECISION']), contract_addr.encode("utf8"),
              config['MAIN_USER_ADDRESS'].encode('utf8'),
              5000, 40, OP_DEPOSIT_TO_CONTRACT])
         call_contract_script_hex = call_contract_script.hex()
@@ -383,7 +384,7 @@ class UbtcContractTests(unittest.TestCase):
         utxo = get_utxo()
         withdraw_amount = 0.3
         call_contract_script = CScript(
-            [b'\x01', str(int(withdraw_amount * config['PRECISION'])).encode("utf8"), "withdraw".encode("utf8"),
+            [config['CONTRACT_VERSION'], str(int(withdraw_amount * config['PRECISION'])).encode("utf8"), "withdraw".encode("utf8"),
              contract_addr.encode("utf8"),
              config['MAIN_USER_ADDRESS'].encode('utf8'),
              5000, 40, OP_CALL])
@@ -452,7 +453,7 @@ class UbtcContractTests(unittest.TestCase):
         utxo = get_utxo()
         contract_name = "contract_name_%d" % random.randint(1, 99999999)
         call_contract_script = CScript(
-            [b'\x01', "contract_desc".encode("utf8"), contract_name.encode("utf8"),
+            [config['CONTRACT_VERSION'], "contract_desc".encode("utf8"), contract_name.encode("utf8"),
              contract_addr.encode("utf8"),
              config['MAIN_USER_ADDRESS'].encode('utf8'),
              5000, 40, OP_UPGRADE])
@@ -525,7 +526,7 @@ class UbtcContractTests(unittest.TestCase):
         print("contract info: ", contract)
         utxo = get_utxo()
         call_contract_script = CScript(
-            [b'\x01', "abc".encode('utf8'), "large".encode('utf8'), contract_addr.encode("utf8"),
+            [config['CONTRACT_VERSION'], "abc".encode('utf8'), "large".encode('utf8'), contract_addr.encode("utf8"),
              config['MAIN_USER_ADDRESS'].encode('utf8'),
              5000, 40, OP_CALL])
         call_contract_script_hex = call_contract_script.hex()
@@ -567,7 +568,7 @@ class UbtcContractTests(unittest.TestCase):
         print("contract info: ", contract)
         utxo = get_utxo()
         call_contract_script = CScript(
-            [b'\x01', "abc".encode('utf8'), "test_apis".encode('utf8'), contract_addr.encode("utf8"),
+            [config['CONTRACT_VERSION'], "abc".encode('utf8'), "test_apis".encode('utf8'), contract_addr.encode("utf8"),
              config['MAIN_USER_ADDRESS'].encode('utf8'),
              5000, 40, OP_CALL])
         call_contract_script_hex = call_contract_script.hex()
