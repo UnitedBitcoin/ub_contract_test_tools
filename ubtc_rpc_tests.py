@@ -9,7 +9,7 @@ from btcscriptencoder import *
 config = {
     'HOST': '192.168.1.148',
     'PORT': 60011,
-    'MAIN_USER_ADDRESS': '12Lk6t85SHWXYRQZG4AbGzDoxnut7dSk9r',
+    'MAIN_USER_ADDRESS': '1LkutqJx9zdRajJ7XRF28QCeaYT1BSzEgX',
     'PRECISION': 100000000,
 }
 
@@ -36,31 +36,71 @@ def call_rpc(method, params):
     return res['result']
 
 
-created_contract_addr = 'CONLH7Je69CTbKGa1qYWZXiUWQdP5PZnLqBT'
+created_contract_addr = 'CONMKLWBdQGEgZYvi8Pv7u2qKSJ7b14gP5Kj'  # 'CON2gM95y4x4RTtd9rKhF9kjtuN54XxVqV7k'
+
+using_utxos = []
+
+def get_utxo():
+    utxos = call_rpc('listunspent', [])
+    having_amount_items = list(filter(lambda x: x.get('address', None) == config['MAIN_USER_ADDRESS'] and int(x.get('amount')) > 40,
+               utxos))
+    def in_using(item):
+        for utxo in using_utxos:
+            if utxo['txid'] == item['txid'] and utxo['vout'] == item['vout']:
+                return True
+        return False
+    not_used_items = filter(lambda x: not in_using(x), having_amount_items)
+    utxo = next(not_used_items)
+    using_utxos.append(utxo)
+    return utxo
+
+def invoke_contract_api(caller_addr, contract_addr, api_name, api_arg):
+    utxo = get_utxo()
+    call_contract_script = CScript(
+        [b'\x01', api_arg.encode('utf8'), api_name.encode('utf8'), contract_addr.encode("utf8"),
+         caller_addr.encode('utf8'),
+         5000, 40, OP_CALL])
+    call_contract_script_hex = call_contract_script.hex()
+    fee = 0.01
+    call_contract_raw_tx = call_rpc('createrawtransaction', [
+        [
+            {
+                'txid': utxo['txid'],
+                'vout': utxo['vout'],
+            },
+        ],
+        {
+            config['MAIN_USER_ADDRESS']: '%.6f' % (utxo['amount'] - fee),
+            'contract': call_contract_script_hex,
+        },
+    ])
+    signed_call_contract_raw_tx_res = call_rpc('signrawtransaction', [
+        call_contract_raw_tx,
+        [
+            {
+                'txid': utxo['txid'],
+                'vout': utxo['vout'],
+                'scriptPubKey': utxo['scriptPubKey'],
+            },
+        ],
+    ])
+    assert (signed_call_contract_raw_tx_res.get('complete', None) is True)
+    signed_call_contract_raw_tx = signed_call_contract_raw_tx_res.get('hex')
+    res = call_rpc('sendrawtransaction', [signed_call_contract_raw_tx])
+    return res
+
+def generate_block():
+    return call_rpc('generatetoaddress', [
+            1, config['MAIN_USER_ADDRESS'], 1000000,
+        ])
 
 
 class UbtcContractTests(unittest.TestCase):
 
-    using_utxos = []
-
-    def get_utxo(self):
-        utxos = call_rpc('listunspent', [])
-        having_amount_items = list(filter(lambda x: x.get('address', None) == config['MAIN_USER_ADDRESS'] and int(x.get('amount')) > 40,
-                   utxos))
-        def in_using(item):
-            for utxo in self.using_utxos:
-                if utxo['txid'] == item['txid'] and utxo['vout'] == item['vout']:
-                    return True
-            return False
-        not_used_items = filter(lambda x: not in_using(x), having_amount_items)
-        utxo = next(not_used_items)
-        self.using_utxos.append(utxo)
-        return utxo
-
     def test_create_contract(self):
         print("test_create_contract")
         # get utxo
-        utxo = self.get_utxo()
+        utxo = get_utxo()
         bytecode_hex = read_contract_bytecode_hex("./test.gpc")
         register_contract_script = CScript(
             [b'\x01', bytes().fromhex(bytecode_hex), config['MAIN_USER_ADDRESS'].encode('utf8'), 5000, 40, OP_CREATE])
@@ -92,9 +132,7 @@ class UbtcContractTests(unittest.TestCase):
         signed_create_contract_raw_tx = signed_create_contract_raw_tx_res.get('hex')
         print(signed_create_contract_raw_tx)
         call_rpc('sendrawtransaction', [signed_create_contract_raw_tx])
-        mine_res = call_rpc('generatetoaddress', [
-            1, config['MAIN_USER_ADDRESS'], 1000000,
-        ])
+        mine_res = generate_block()
         contract_addr = call_rpc('getcreatecontractaddress', [
             signed_create_contract_raw_tx
         ])
@@ -124,6 +162,16 @@ class UbtcContractTests(unittest.TestCase):
         print("test_get_current_root_state_hash")
         root_state_hash = call_rpc('currentrootstatehash', [])
         print("current root_state_hash: ", root_state_hash)
+        height = call_rpc('getblockcount', [])
+        self.test_call_contract_api()
+        mine_res = call_rpc('generatetoaddress', [
+            1, config['MAIN_USER_ADDRESS'], 1000000,
+        ])
+        new_root_state_hash = call_rpc('currentrootstatehash', [])
+        old_root_state_hash = call_rpc('blockrootstatehash', [height])
+        print("new_root_state_hash: %s, old_root_state_hash: %s" % (new_root_state_hash, old_root_state_hash))
+        self.assertEqual(old_root_state_hash, root_state_hash)
+
 
     def test_call_contract_query_storage(self):
         print("test_call_contract_query_storage")
@@ -137,6 +185,19 @@ class UbtcContractTests(unittest.TestCase):
         self.assertEqual(invoke_res.get('result'), 'hello')
         print("gas used: ", invoke_res.get('gasCount'))
         self.assertTrue(invoke_res.get('gasCount') > 0)
+
+    def test_call_contract_once_api(self):
+        print("test_call_contract_once_api")
+        contract_addr = created_contract_addr
+        try:
+            invoke_contract_api(config['MAIN_USER_ADDRESS'], contract_addr, "once", " ")
+            invoke_contract_api(config['MAIN_USER_ADDRESS'], contract_addr, "once", " ")
+            mine_res = generate_block()
+            print("mine res: ", mine_res)
+            self.assertTrue(False)
+        except Exception as e:
+            print(e)
+            pass
 
     def test_call_contract_offline(self):
         print("test_call_contract_offline")
@@ -193,38 +254,7 @@ class UbtcContractTests(unittest.TestCase):
         contract_addr = created_contract_addr
         contract = call_rpc('getcontractinfo', [contract_addr])
         print("contract info: ", contract)
-        utxo = self.get_utxo()
-        call_contract_script = CScript(
-            [b'\x01', "abc".encode('utf8'), "hello".encode('utf8'), contract_addr.encode("utf8"),
-             config['MAIN_USER_ADDRESS'].encode('utf8'),
-             5000, 40, OP_CALL])
-        call_contract_script_hex = call_contract_script.hex()
-        call_contract_raw_tx = call_rpc('createrawtransaction', [
-            [
-                {
-                    'txid': utxo['txid'],
-                    'vout': utxo['vout'],
-                },
-            ],
-            {
-                config['MAIN_USER_ADDRESS']: '%.6f' % (utxo['amount'] - 0.01),
-                'contract': call_contract_script_hex,
-            },
-        ])
-        signed_call_contract_raw_tx_res = call_rpc('signrawtransaction', [
-            call_contract_raw_tx,
-            [
-                {
-                    'txid': utxo['txid'],
-                    'vout': utxo['vout'],
-                    'scriptPubKey': utxo['scriptPubKey'],
-                },
-            ],
-        ])
-        self.assertEqual(signed_call_contract_raw_tx_res.get('complete', None), True)
-        signed_call_contract_raw_tx = signed_call_contract_raw_tx_res.get('hex')
-        print(signed_call_contract_raw_tx)
-        call_rpc('sendrawtransaction', [signed_call_contract_raw_tx])
+        invoke_contract_api(config['MAIN_USER_ADDRESS'], contract_addr, "hello", "abc")
         mine_res = call_rpc('generatetoaddress', [
             1, config['MAIN_USER_ADDRESS'], 1000000,
         ])
@@ -235,41 +265,11 @@ class UbtcContractTests(unittest.TestCase):
         contract_addr = created_contract_addr
         contract = call_rpc('getcontractinfo', [contract_addr])
         print("contract info: ", contract)
-        utxo = self.get_utxo()
-        call_contract_script = CScript(
-            [b'\x01', "abc".encode('utf8'), "error".encode('utf8'), contract_addr.encode("utf8"),
-             config['MAIN_USER_ADDRESS'].encode('utf8'),
-             5000, 40, OP_CALL])
-        call_contract_script_hex = call_contract_script.hex()
-        call_contract_raw_tx = call_rpc('createrawtransaction', [
-            [
-                {
-                    'txid': utxo['txid'],
-                    'vout': utxo['vout'],
-                },
-            ],
-            {
-                config['MAIN_USER_ADDRESS']: '%.6f' % (utxo['amount'] - 0.01),
-                'contract': call_contract_script_hex,
-            },
-        ])
-        signed_call_contract_raw_tx_res = call_rpc('signrawtransaction', [
-            call_contract_raw_tx,
-            [
-                {
-                    'txid': utxo['txid'],
-                    'vout': utxo['vout'],
-                    'scriptPubKey': utxo['scriptPubKey'],
-                },
-            ],
-        ])
-        self.assertEqual(signed_call_contract_raw_tx_res.get('complete', None), True)
-        signed_call_contract_raw_tx = signed_call_contract_raw_tx_res.get('hex')
-        print(signed_call_contract_raw_tx)
         try:
-            call_rpc('sendrawtransaction', [signed_call_contract_raw_tx])
+            invoke_contract_api(config['MAIN_USER_ADDRESS'], contract_addr, "error", " ")  # can't use empty string as api argument
             self.assertTrue(False)
         except Exception as e:
+            print(e)
             print("error invoke contract passed successfully")
 
     def deposit_to_contract(self, mine=True):
@@ -277,7 +277,7 @@ class UbtcContractTests(unittest.TestCase):
         contract_addr = created_contract_addr
         contract = call_rpc('getcontractinfo', [contract_addr])
         print("contract info: ", contract)
-        utxo = self.get_utxo()
+        utxo = get_utxo()
         deposit_amount = 0.1
         call_contract_script = CScript(
             [b'\x01', "memo123".encode('utf8'), int(deposit_amount * config['PRECISION']), contract_addr.encode("utf8"),
@@ -312,7 +312,7 @@ class UbtcContractTests(unittest.TestCase):
         call_rpc('sendrawtransaction', [signed_call_contract_raw_tx])
 
         # put another tx again
-        utxo = self.get_utxo()
+        utxo = get_utxo()
         deposit_amount2 = 0.2
         call_contract_script = CScript(
             [b'\x01', "memo123".encode('utf8'), int(deposit_amount2 * config['PRECISION']), contract_addr.encode("utf8"),
@@ -356,20 +356,20 @@ class UbtcContractTests(unittest.TestCase):
                 config['MAIN_USER_ADDRESS'], contract_addr, "query_money", "",
             ])
             print("storage.money after deposit: ", invoke_res)
-            self.assertTrue(len(json.loads(contract_info['balances'])) > 0)
-            self.assertEqual(int(invoke_res['result']), json.loads(contract_info['balances'])[0]['amount'])
+            self.assertTrue(len(contract_info['balances']) > 0)
+            self.assertEqual(int(invoke_res['result']), contract_info['balances'][0]['amount'])
 
     def multi_contract_balance_change(self):
         print("multi_contract_balance_change")
         # TODO
 
-    def withdraw_from_contract(self, mine=True, withdraw_to_addr='14gB2DZBnhUa59yxHPwZ3rmfhKA8PvkQc7'):
+    def withdraw_from_contract(self, mine=True, withdraw_to_addr='18reta1dM4EkvGwWGjztSu6T48YLYPvWd'):
         print("withdraw_from_contract")
         contract_addr = created_contract_addr
         contract = call_rpc('getcontractinfo', [contract_addr])
         print("contract info: ", contract)
         account_balance_before_withdraw = call_rpc('listaccounts', [])[""]
-        utxo = self.get_utxo()
+        utxo = get_utxo()
         withdraw_amount = 0.3
         call_contract_script = CScript(
             [b'\x01', str(int(withdraw_amount * config['PRECISION'])).encode("utf8"), "withdraw".encode("utf8"),
@@ -438,7 +438,7 @@ class UbtcContractTests(unittest.TestCase):
         contract_addr = self.test_create_contract()
         contract = call_rpc('getcontractinfo', [contract_addr])
         print("contract info: ", contract)
-        utxo = self.get_utxo()
+        utxo = get_utxo()
         contract_name = "contract_name_%d" % random.randint(1, 99999999)
         call_contract_script = CScript(
             [b'\x01', "contract_desc".encode("utf8"), contract_name.encode("utf8"),
@@ -506,6 +506,91 @@ class UbtcContractTests(unittest.TestCase):
         self.assertEqual("%.6f" % (account_balance_before_withdraw + mine_reward - fee*(n1*2 + n2) - 0.3*n1 + 0.3*n2,),
                          "%.6f" % account_balance_after_withdraw)
         print("withdrawed amount is %.6f" % (0.3*n2))
+
+    def test_gas_not_enough(self):
+        print("test_gas_not_enough")
+        contract_addr = created_contract_addr
+        contract = call_rpc('getcontractinfo', [contract_addr])
+        print("contract info: ", contract)
+        utxo = get_utxo()
+        call_contract_script = CScript(
+            [b'\x01', "abc".encode('utf8'), "large".encode('utf8'), contract_addr.encode("utf8"),
+             config['MAIN_USER_ADDRESS'].encode('utf8'),
+             5000, 40, OP_CALL])
+        call_contract_script_hex = call_contract_script.hex()
+        call_contract_raw_tx = call_rpc('createrawtransaction', [
+            [
+                {
+                    'txid': utxo['txid'],
+                    'vout': utxo['vout'],
+                },
+            ],
+            {
+                config['MAIN_USER_ADDRESS']: '%.6f' % (utxo['amount'] - 0.01),
+                'contract': call_contract_script_hex,
+            },
+        ])
+        signed_call_contract_raw_tx_res = call_rpc('signrawtransaction', [
+            call_contract_raw_tx,
+            [
+                {
+                    'txid': utxo['txid'],
+                    'vout': utxo['vout'],
+                    'scriptPubKey': utxo['scriptPubKey'],
+                },
+            ],
+        ])
+        self.assertEqual(signed_call_contract_raw_tx_res.get('complete', None), True)
+        signed_call_contract_raw_tx = signed_call_contract_raw_tx_res.get('hex')
+        print(signed_call_contract_raw_tx)
+        try:
+            call_rpc('sendrawtransaction', [signed_call_contract_raw_tx])
+            self.assertTrue(False)
+        except Exception as e:
+            print(e)
+
+    def test_global_apis(self):
+        print("test_global_apis")
+        contract_addr = created_contract_addr
+        contract = call_rpc('getcontractinfo', [contract_addr])
+        print("contract info: ", contract)
+        utxo = get_utxo()
+        call_contract_script = CScript(
+            [b'\x01', "abc".encode('utf8'), "test_apis".encode('utf8'), contract_addr.encode("utf8"),
+             config['MAIN_USER_ADDRESS'].encode('utf8'),
+             5000, 40, OP_CALL])
+        call_contract_script_hex = call_contract_script.hex()
+        call_contract_raw_tx = call_rpc('createrawtransaction', [
+            [
+                {
+                    'txid': utxo['txid'],
+                    'vout': utxo['vout'],
+                },
+            ],
+            {
+                config['MAIN_USER_ADDRESS']: '%.6f' % (utxo['amount'] - 0.01),
+                'contract': call_contract_script_hex,
+            },
+        ])
+        signed_call_contract_raw_tx_res = call_rpc('signrawtransaction', [
+            call_contract_raw_tx,
+            [
+                {
+                    'txid': utxo['txid'],
+                    'vout': utxo['vout'],
+                    'scriptPubKey': utxo['scriptPubKey'],
+                },
+            ],
+        ])
+        self.assertEqual(signed_call_contract_raw_tx_res.get('complete', None), True)
+        signed_call_contract_raw_tx = signed_call_contract_raw_tx_res.get('hex')
+        print(signed_call_contract_raw_tx)
+        call_rpc('sendrawtransaction', [signed_call_contract_raw_tx])
+        mine_res = call_rpc('generatetoaddress', [
+            1, config['MAIN_USER_ADDRESS'], 1000000,
+        ])
+        print("mine res: ", mine_res)
+
 
 
 def main():
