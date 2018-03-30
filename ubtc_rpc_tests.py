@@ -9,7 +9,7 @@ from btcscriptencoder import *
 config = {
     'HOST': '192.168.1.148',
     'PORT': 60011,
-    'MAIN_USER_ADDRESS': '1LkutqJx9zdRajJ7XRF28QCeaYT1BSzEgX',
+    'MAIN_USER_ADDRESS': '1Bh9BXUsq1SYn31ZZriJQrcfrEAHz2NWoM',
     'PRECISION': 100000000,
     'CONTRACT_VERSION': b'\x01',
 }
@@ -37,13 +37,15 @@ def call_rpc(method, params):
     return res['result']
 
 
-created_contract_addr = 'CONNCQeyJLxkQ77UvK49b99E6XyEEJqeuVnK'
+created_contract_addr = 'CON2auCadgP5T4qaVPqxd7Tf7HvSFKkuQrUf'
 
 using_utxos = []
 
-def get_utxo():
+def get_utxo(caller_addr=None):
+    if caller_addr is None:
+        caller_addr = config['MAIN_USER_ADDRESS']
     utxos = call_rpc('listunspent', [])
-    having_amount_items = list(filter(lambda x: x.get('address', None) == config['MAIN_USER_ADDRESS'] and int(x.get('amount')) > 40,
+    having_amount_items = list(filter(lambda x: x.get('address', None) == caller_addr and int(x.get('amount')) > 40,
                utxos))
     def in_using(item):
         for utxo in using_utxos:
@@ -56,7 +58,7 @@ def get_utxo():
     return utxo
 
 def invoke_contract_api(caller_addr, contract_addr, api_name, api_arg):
-    utxo = get_utxo()
+    utxo = get_utxo(caller_addr)
     call_contract_script = CScript(
         [config['CONTRACT_VERSION'], api_arg.encode('utf8'), api_name.encode('utf8'), contract_addr.encode("utf8"),
          caller_addr.encode('utf8'),
@@ -90,9 +92,11 @@ def invoke_contract_api(caller_addr, contract_addr, api_name, api_arg):
     res = call_rpc('sendrawtransaction', [signed_call_contract_raw_tx])
     return res
 
-def generate_block():
+def generate_block(miner=None):
+    if miner is None:
+        miner = config['MAIN_USER_ADDRESS']
     return call_rpc('generatetoaddress', [
-            1, config['MAIN_USER_ADDRESS'], 1000000,
+            1, miner, 1000000,
         ])
 
 
@@ -524,39 +528,8 @@ class UbtcContractTests(unittest.TestCase):
         contract_addr = created_contract_addr
         contract = call_rpc('getcontractinfo', [contract_addr])
         print("contract info: ", contract)
-        utxo = get_utxo()
-        call_contract_script = CScript(
-            [config['CONTRACT_VERSION'], "abc".encode('utf8'), "large".encode('utf8'), contract_addr.encode("utf8"),
-             config['MAIN_USER_ADDRESS'].encode('utf8'),
-             5000, 40, OP_CALL])
-        call_contract_script_hex = call_contract_script.hex()
-        call_contract_raw_tx = call_rpc('createrawtransaction', [
-            [
-                {
-                    'txid': utxo['txid'],
-                    'vout': utxo['vout'],
-                },
-            ],
-            {
-                config['MAIN_USER_ADDRESS']: '%.6f' % (utxo['amount'] - 0.01),
-                'contract': call_contract_script_hex,
-            },
-        ])
-        signed_call_contract_raw_tx_res = call_rpc('signrawtransaction', [
-            call_contract_raw_tx,
-            [
-                {
-                    'txid': utxo['txid'],
-                    'vout': utxo['vout'],
-                    'scriptPubKey': utxo['scriptPubKey'],
-                },
-            ],
-        ])
-        self.assertEqual(signed_call_contract_raw_tx_res.get('complete', None), True)
-        signed_call_contract_raw_tx = signed_call_contract_raw_tx_res.get('hex')
-        print(signed_call_contract_raw_tx)
         try:
-            call_rpc('sendrawtransaction', [signed_call_contract_raw_tx])
+            invoke_contract_api(config['MAIN_USER_ADDRESS'], contract_addr, "large", "abc")
             self.assertTrue(False)
         except Exception as e:
             print(e)
@@ -603,6 +576,146 @@ class UbtcContractTests(unittest.TestCase):
         ])
         print("mine res: ", mine_res)
 
+    def test_token_contract(self):
+        print("test_token_contract")
+        admin_addr = config['MAIN_USER_ADDRESS']
+        other_addr = '1FNfecY7xnKmMQyUpc7hbgSHqD2pD8YDJ7'
+
+        for i in range(10):
+            generate_block(other_addr)
+
+        # create token contract
+        utxo = get_utxo()
+        bytecode_hex = read_contract_bytecode_hex("./token.gpc")
+        register_contract_script = CScript(
+            [config['CONTRACT_VERSION'], bytes().fromhex(bytecode_hex), config['MAIN_USER_ADDRESS'].encode('utf8'),
+             5000, 40, OP_CREATE])
+        create_contract_script = register_contract_script.hex()
+        print("create_contract_script size %d" % len(create_contract_script))
+        create_contract_raw_tx = call_rpc('createrawtransaction', [
+            [
+                {
+                    'txid': utxo['txid'],
+                    'vout': utxo['vout'],
+                },
+            ],
+            {
+                config['MAIN_USER_ADDRESS']: '%.6f' % (utxo['amount'] - 0.01),
+                'contract': create_contract_script,
+            },
+        ])
+        signed_create_contract_raw_tx_res = call_rpc('signrawtransaction', [
+            create_contract_raw_tx,
+            [
+                {
+                    'txid': utxo['txid'],
+                    'vout': utxo['vout'],
+                    'scriptPubKey': utxo['scriptPubKey'],
+                },
+            ],
+        ])
+        self.assertEqual(signed_create_contract_raw_tx_res.get('complete', None), True)
+        signed_create_contract_raw_tx = signed_create_contract_raw_tx_res.get('hex')
+        print(signed_create_contract_raw_tx)
+        call_rpc('sendrawtransaction', [signed_create_contract_raw_tx])
+        generate_block()
+        contract_addr = call_rpc('getcreatecontractaddress', [
+            signed_create_contract_raw_tx
+        ])['address']
+        print("new contract address: %s" % contract_addr)
+        contract = call_rpc('getcontractinfo', [contract_addr])
+        print("contract info: ", contract)
+        print("create contract of token tests passed")
+
+        # init config of token contract
+        invoke_contract_api(admin_addr, contract_addr, "init_token", "test,TEST,1000000,100")
+        generate_block()
+        state = call_rpc('invokecontractoffline', [
+            admin_addr, contract_addr, "state", " ",
+        ])['result']
+        self.assertEqual(state, "COMMON")
+        token_balance = call_rpc('invokecontractoffline', [
+            admin_addr, contract_addr, "balanceOf", "%s" % config['MAIN_USER_ADDRESS'],
+        ])['result']
+        self.assertEqual(int(token_balance), 1000000)
+        print("init config of token tests passed")
+
+        # transfer
+        invoke_contract_api(admin_addr, contract_addr, "transfer", "%s,%d" % (other_addr, 10000))
+        generate_block()
+        token_balance = call_rpc('invokecontractoffline', [
+            admin_addr, contract_addr, "balanceOf", "%s" % admin_addr,
+        ])['result']
+        self.assertEqual(int(token_balance), 1000000 - 10000)
+        other_token_balance = call_rpc('invokecontractoffline', [
+            admin_addr, contract_addr, "balanceOf", "%s" % other_addr,
+        ])['result']
+        self.assertEqual(int(other_token_balance), 10000)
+        print("transfer of token tests passed")
+
+        # approve balance
+        invoke_contract_api(admin_addr, contract_addr, "approve", "%s,%d" % (other_addr, 20000))
+        generate_block()
+        token_balance = call_rpc('invokecontractoffline', [
+            admin_addr, contract_addr, "balanceOf", "%s" % admin_addr,
+        ])['result']
+        self.assertEqual(int(token_balance), 1000000 - 10000)
+        other_token_balance = call_rpc('invokecontractoffline', [
+            admin_addr, contract_addr, "balanceOf", "%s" % other_addr,
+        ])['result']
+        self.assertEqual(int(other_token_balance), 10000)
+        all_approved_token_from_admin = call_rpc('invokecontractoffline', [
+            admin_addr, contract_addr, "allApprovedFromUser", "%s" % admin_addr,
+        ])['result']
+        print("all_approved_token_from_admin: ", all_approved_token_from_admin)
+        other_approved_token_balance = call_rpc('invokecontractoffline', [
+            admin_addr, contract_addr, "approvedBalanceFrom", "%s,%s" % (other_addr, admin_addr),
+        ])['result']
+        self.assertEqual(int(other_approved_token_balance), 20000)
+        print("approve of token tests passed")
+
+        # transferFrom
+        invoke_contract_api(other_addr, contract_addr, "transferFrom", "%s,%s,%d" % (admin_addr, other_addr, 500))
+        generate_block()
+        token_balance = call_rpc('invokecontractoffline', [
+            admin_addr, contract_addr, "balanceOf", "%s" % admin_addr,
+        ])['result']
+        self.assertEqual(int(token_balance), 1000000 - 10000 - 500)
+        other_token_balance = call_rpc('invokecontractoffline', [
+            admin_addr, contract_addr, "balanceOf", "%s" % other_addr,
+        ])['result']
+        self.assertEqual(int(other_token_balance), 10000 + 500)
+        other_approved_token_balance = call_rpc('invokecontractoffline', [
+            admin_addr, contract_addr, "approvedBalanceFrom", "%s,%s" % (other_addr, admin_addr),
+        ])['result']
+        print("other_approved_token_balance after transferFrom is ", other_approved_token_balance)
+        self.assertEqual(int(other_approved_token_balance), 20000 - 500)
+        print("transfer of token tests passed")
+
+        # lock balance
+        invoke_contract_api(admin_addr, contract_addr, "openAllowLock", " ")
+        generate_block()
+        cur_blockcount = call_rpc('getblockcount', [])
+        locked_amount = 300
+        unlock_blocknum = cur_blockcount + 2
+        invoke_contract_api(admin_addr, contract_addr, "lock", "%d,%d" % (locked_amount, unlock_blocknum))
+        generate_block()
+        token_balance = call_rpc('invokecontractoffline', [
+            admin_addr, contract_addr, "balanceOf", "%s" % admin_addr,
+        ])['result']
+        self.assertEqual(int(token_balance), 1000000 - 10000 - 500 - locked_amount)
+        locked_balance = call_rpc('invokecontractoffline', [admin_addr, contract_addr, "lockedBalanceOf", "%s" % admin_addr])['result']
+        self.assertEqual(locked_balance, "%s,%d" % (locked_amount, unlock_blocknum))
+        generate_block()
+        invoke_contract_api(admin_addr, contract_addr, "unlock", " ")
+        generate_block()
+        token_balance = call_rpc('invokecontractoffline', [
+            admin_addr, contract_addr, "balanceOf", "%s" % admin_addr,
+        ])['result']
+        self.assertEqual(int(token_balance), 1000000 - 10000 - 500)
+        locked_balance = call_rpc('invokecontractoffline', [admin_addr, contract_addr, "lockedBalanceOf", "%s" % admin_addr])['result']
+        self.assertEqual(locked_balance, "0,0")
+        print("lock of token tests passed")
 
 
 def main():
