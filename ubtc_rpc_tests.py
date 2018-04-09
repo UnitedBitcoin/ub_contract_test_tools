@@ -9,8 +9,8 @@ from btcscriptencoder import *
 config = {
     'HOST': '192.168.1.148',
     'PORT': 60011,
-    'MAIN_USER_ADDRESS': '1CMvrM73nfGwwRTnZvhroyY2CSPgsK1wt1',
-    'OTHER_USER_ADDRESS': '1MPd4YVHB5LCanrkTf6JqzMBBZvnMpUdLc',
+    'MAIN_USER_ADDRESS': '1Dnu5ddNTi3r1NFy4dedwsa9BDpoyoNZQY',
+    'OTHER_USER_ADDRESS': '13VBeYJNYXfbR4ENBxjcSYzCkTSQLwdcRt',
     'PRECISION': 100000000,
     'CONTRACT_VERSION': b'\x01',
 }
@@ -41,7 +41,7 @@ def call_rpc(method, params):
     return res['result']
 
 
-created_contract_addr = 'CONQJytkzZGgJmAdkDsKeT3tW1EVFB4kBtX1'
+created_contract_addr = 'CON9YhryX9F4yJ6XAbFQC4he24oGzwG3t4iZ'
 
 using_utxos = []
 
@@ -166,6 +166,43 @@ def create_new_contract(contract_bytecode_path):
     return contract_addr['address']
 
 
+def create_new_native_contract(template_name):
+    utxo = get_utxo()
+    register_contract_script = CScript(
+        [config['CONTRACT_VERSION'], template_name.encode('utf8'), config['MAIN_USER_ADDRESS'].encode('utf8'), 5000,
+         40, OP_CREATE_NATIVE])
+    create_contract_script = register_contract_script.hex()
+    create_contract_raw_tx = call_rpc('createrawtransaction', [
+        [
+            {
+                'txid': utxo['txid'],
+                'vout': utxo['vout'],
+            },
+        ],
+        {
+            config['MAIN_USER_ADDRESS']: '%.6f' % (utxo['amount'] - 0.01),
+            'contract': create_contract_script,
+        },
+    ])
+    signed_create_contract_raw_tx_res = call_rpc('signrawtransaction', [
+        create_contract_raw_tx,
+        [
+            {
+                'txid': utxo['txid'],
+                'vout': utxo['vout'],
+                'scriptPubKey': utxo['scriptPubKey'],
+            },
+        ],
+    ])
+    assert (signed_create_contract_raw_tx_res.get('complete', None) is True)
+    signed_create_contract_raw_tx = signed_create_contract_raw_tx_res.get('hex')
+    call_rpc('sendrawtransaction', [signed_create_contract_raw_tx])
+    contract_addr = call_rpc('getcreatecontractaddress', [
+        signed_create_contract_raw_tx
+    ])
+    return contract_addr['address']
+
+
 def upgrade_contract(contract_addr, contract_name, contract_desc, caller_addr=None):
     if caller_addr is None:
         caller_addr = config['MAIN_USER_ADDRESS']
@@ -247,6 +284,29 @@ class UbtcContractTests(unittest.TestCase):
         print("new contract address: %s" % new_contract_addr)
         return new_contract_addr
 
+    def test_create_native_contract(self):
+        print("test_create_native_contract")
+        new_contract_addr = create_new_native_contract('demo')
+        generate_block()
+        print("new contract address: %s" % new_contract_addr)
+        return new_contract_addr
+
+    def test_demo_native_contract(self):
+        print("test_create_native_contract")
+        caller_addr = config['MAIN_USER_ADDRESS']
+        new_contract_addr = create_new_native_contract('demo')
+        generate_block()
+        print("new contract address: %s" % new_contract_addr)
+        contract_addr = new_contract_addr
+        contract_info = call_rpc('getcontractinfo', [contract_addr])
+        print(contract_info)
+        invoke_contract_api(caller_addr, contract_addr, "hello", "abc 123")
+        res = call_rpc("invokecontractoffline", [caller_addr, contract_addr, "hello", "abc"])
+        print("hello of demo result: ", res)
+        self.assertEqual(res['result'], 'demo result')
+        self.assertTrue(res['gasCount'] > 0)
+        generate_block(caller_addr)
+
     def test_get_contract_info(self):
         print("test_get_contract_info")
         contract_addr = created_contract_addr
@@ -293,15 +353,20 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_call_contract_once_api(self):
         print("test_call_contract_once_api")
-        contract_addr = created_contract_addr
+        # contract_addr = created_contract_addr
+        contract_addr = create_new_contract("./test.gpc")
+        print(contract_addr)
+        generate_block()
         try:
             invoke_contract_api(config['MAIN_USER_ADDRESS'], contract_addr, "once", " ")
+            generate_block()
             invoke_contract_api(config['MAIN_USER_ADDRESS'], contract_addr, "once", " ")
             mine_res = generate_block()
             print("mine res: ", mine_res)
             self.assertTrue(False)
         except Exception as e:
             print(e)
+            self.assertTrue(str(e).find("only be called once") >= 0)
             pass
 
     def test_call_contract_offline(self):
@@ -505,7 +570,8 @@ class UbtcContractTests(unittest.TestCase):
         n2 = 10
         # if contract balance not enough to withdraw, need to deposit some to it before test
         if len(contract['balances']) < 1 or contract['balances'][0]['amount'] < (n2 * 0.3):
-            self.test_deposit_to_contract_testing()
+            deposit_to_contract(config['MAIN_USER_ADDRESS'], contract_addr, n2 * 0.3, "memo1234")
+            generate_block(config['MAIN_USER_ADDRESS'])
         account_balance_before_withdraw = call_rpc('listaccounts', [])[""]
         fee = 0.01
         for i in range(n1):
@@ -712,7 +778,8 @@ class UbtcContractTests(unittest.TestCase):
         ])['result']
         self.assertEqual(int(token_balance), 1000000 - 10000 - 500 - locked_amount)
         locked_balance = \
-        call_rpc('invokecontractoffline', [admin_addr, contract_addr, "lockedBalanceOf", "%s" % admin_addr])['result']
+            call_rpc('invokecontractoffline', [admin_addr, contract_addr, "lockedBalanceOf", "%s" % admin_addr])[
+                'result']
         self.assertEqual(locked_balance, "%s,%d" % (locked_amount, unlock_blocknum))
         generate_block()
         invoke_contract_api(admin_addr, contract_addr, "unlock", " ")
@@ -722,7 +789,8 @@ class UbtcContractTests(unittest.TestCase):
         ])['result']
         self.assertEqual(int(token_balance), 1000000 - 10000 - 500)
         locked_balance = \
-        call_rpc('invokecontractoffline', [admin_addr, contract_addr, "lockedBalanceOf", "%s" % admin_addr])['result']
+            call_rpc('invokecontractoffline', [admin_addr, contract_addr, "lockedBalanceOf", "%s" % admin_addr])[
+                'result']
         self.assertEqual(locked_balance, "0,0")
         print("lock of token tests passed")
 
