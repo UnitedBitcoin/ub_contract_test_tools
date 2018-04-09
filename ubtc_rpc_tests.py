@@ -294,6 +294,9 @@ class UbtcContractTests(unittest.TestCase):
     def test_demo_native_contract(self):
         print("test_create_native_contract")
         caller_addr = config['MAIN_USER_ADDRESS']
+        res = call_rpc("registernativecontracttesting", [caller_addr, 'demo'])
+        self.assertTrue(res['gasCount'] > 0)
+        print("res: ", res)
         new_contract_addr = create_new_native_contract('demo')
         generate_block()
         print("new contract address: %s" % new_contract_addr)
