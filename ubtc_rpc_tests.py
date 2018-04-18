@@ -9,11 +9,23 @@ from btcscriptencoder import *
 config = {
     'HOST': '192.168.1.148',
     'PORT': 60011,
-    'MAIN_USER_ADDRESS': '1Dnu5ddNTi3r1NFy4dedwsa9BDpoyoNZQY',
-    'OTHER_USER_ADDRESS': '13VBeYJNYXfbR4ENBxjcSYzCkTSQLwdcRt',
+    'MAIN_USER_ADDRESS': 'mnaDtBNfPdgTASYoF3satsLh7wi9D9bS8Y',
+    'OTHER_USER_ADDRESS': 'mm4wMctRcKkgCqRZ7zzEFCFpm4rJUPN4a4',
     'PRECISION': 100000000,
     'CONTRACT_VERSION': b'\x01',
 }
+
+is_publictest = False
+
+if is_publictest:
+    config = {
+        'HOST': '13.251.64.171',
+        'PORT': 60011,
+        'MAIN_USER_ADDRESS': 'mo4T1FvnYpmjqjs6Ba6QPBiybGYKDNmsJM',
+        'OTHER_USER_ADDRESS': 'n1eUi8Ad5EExZ9SJBrGLxzkuG4yUJopsgf',
+        'PRECISION': 100000000,
+        'CONTRACT_VERSION': b'\x01',
+    }
 
 other_addr = config['OTHER_USER_ADDRESS']
 
@@ -41,7 +53,11 @@ def call_rpc(method, params):
     return res['result']
 
 
-created_contract_addr = 'CON9YhryX9F4yJ6XAbFQC4he24oGzwG3t4iZ'
+created_contract_addr = 'CON7c7N9b5EZgEBtXtZpKuHEDEAbQarMPcBL'
+
+if is_publictest:
+    created_contract_addr = 'CONsjARn1hgB9TMUaoqAGyWU34g9qwj8fTP'
+
 
 using_utxos = []
 
@@ -50,7 +66,7 @@ def get_utxo(caller_addr=None):
     if caller_addr is None:
         caller_addr = config['MAIN_USER_ADDRESS']
     utxos = call_rpc('listunspent', [])
-    having_amount_items = list(filter(lambda x: x.get('address', None) == caller_addr and int(x.get('amount')) > 40,
+    having_amount_items = list(filter(lambda x: x.get('address', None) == caller_addr and float(x.get('amount')) > 0.5,
                                       utxos))
 
     def in_using(item):
@@ -59,8 +75,8 @@ def get_utxo(caller_addr=None):
                 return True
         return False
 
-    not_used_items = filter(lambda x: not in_using(x), having_amount_items)
-    utxo = next(not_used_items)
+    not_used_items = list(filter(lambda x: not in_using(x), having_amount_items))
+    utxo = not_used_items[0]
     using_utxos.append(utxo)
     return utxo
 
@@ -70,7 +86,7 @@ def invoke_contract_api(caller_addr, contract_addr, api_name, api_arg, withdraw_
     call_contract_script = CScript(
         [config['CONTRACT_VERSION'], api_arg.encode('utf8'), api_name.encode('utf8'), contract_addr.encode("utf8"),
          caller_addr.encode('utf8'),
-         5000, 40, OP_CALL])
+         5000, 10, OP_CALL])
     call_contract_script_hex = call_contract_script.hex()
     fee = 0.01
     vouts = {
@@ -133,7 +149,7 @@ def create_new_contract(contract_bytecode_path):
     bytecode_hex = read_contract_bytecode_hex(contract_bytecode_path)
     register_contract_script = CScript(
         [config['CONTRACT_VERSION'], bytes().fromhex(bytecode_hex), config['MAIN_USER_ADDRESS'].encode('utf8'), 5000,
-         40, OP_CREATE])
+         10, OP_CREATE])
     create_contract_script = register_contract_script.hex()
     create_contract_raw_tx = call_rpc('createrawtransaction', [
         [
@@ -170,7 +186,7 @@ def create_new_native_contract(template_name):
     utxo = get_utxo()
     register_contract_script = CScript(
         [config['CONTRACT_VERSION'], template_name.encode('utf8'), config['MAIN_USER_ADDRESS'].encode('utf8'), 5000,
-         40, OP_CREATE_NATIVE])
+         10, OP_CREATE_NATIVE])
     create_contract_script = register_contract_script.hex()
     create_contract_raw_tx = call_rpc('createrawtransaction', [
         [
@@ -211,7 +227,7 @@ def upgrade_contract(contract_addr, contract_name, contract_desc, caller_addr=No
         [config['CONTRACT_VERSION'], contract_desc.encode("utf8"), contract_name.encode("utf8"),
          contract_addr.encode("utf8"),
          caller_addr.encode('utf8'),
-         5000, 40, OP_UPGRADE])
+         5000, 10, OP_UPGRADE])
     call_contract_script_hex = call_contract_script.hex()
     fee = 0.01
     call_contract_raw_tx = call_rpc('createrawtransaction', [
@@ -247,7 +263,7 @@ def deposit_to_contract(caller_addr, contract_addr, deposit_amount, deposit_memo
         [config['CONTRACT_VERSION'], deposit_memo.encode('utf8'), int(deposit_amount * config['PRECISION']),
          contract_addr.encode("utf8"),
          caller_addr.encode('utf8'),
-         5000, 40, OP_DEPOSIT_TO_CONTRACT])
+         5000, 10, OP_DEPOSIT_TO_CONTRACT])
     call_contract_script_hex = call_contract_script.hex()
     call_contract_raw_tx = call_rpc('createrawtransaction', [
         [
@@ -309,6 +325,67 @@ class UbtcContractTests(unittest.TestCase):
         self.assertEqual(res['result'], 'demo result')
         self.assertTrue(res['gasCount'] > 0)
         generate_block(caller_addr)
+
+    def test_dgp_native_contract(self):
+        print("test_create_native_contract")
+        caller_addr = config['MAIN_USER_ADDRESS']
+        res = call_rpc("registernativecontracttesting", [caller_addr, 'dgp'])
+        self.assertTrue(res['gasCount'] > 0)
+        print("res: ", res)
+        contract_addr = create_new_native_contract('dgp')
+        generate_block()
+        print("new dgp contract address: %s" % contract_addr)
+        admins = json.loads(call_rpc('invokecontractoffline', [caller_addr, contract_addr, 'admins', " "])['result'])
+        print("admins after init is ", admins)
+        self.assertEqual(admins, [caller_addr])
+        min_gas_price = int(call_rpc('invokecontractoffline', [caller_addr, contract_addr, 'min_gas_price', " "])['result'])
+        print("min_gas_price: ", min_gas_price)
+        self.assertEqual(min_gas_price, 10)
+        invoke_contract_api(caller_addr, contract_addr, "create_change_admin_proposal", json.dumps({"address": other_addr, "add": True, "needAgreeCount": 1}))
+        # wait proposal votable for 10 blocks
+        for i in range(10):
+            generate_block(caller_addr)
+        invoke_contract_api(caller_addr, contract_addr, "vote_admin", "true")
+        generate_block(other_addr)
+        admins = json.loads(call_rpc('invokecontractoffline', [caller_addr, contract_addr, 'admins', " "])['result'])
+        print("admins after add is ", admins)
+        self.assertEqual(admins, [caller_addr, other_addr])
+
+        invoke_contract_api(caller_addr, contract_addr, "create_change_admin_proposal",
+                            json.dumps({"address": other_addr, "add": False, "needAgreeCount": 2}))
+        # wait proposal votable for 10 blocks
+        for i in range(10):
+            generate_block(other_addr)
+        invoke_contract_api(caller_addr, contract_addr, "vote_admin", "true")
+        invoke_contract_api(other_addr, contract_addr, "vote_admin", "true")
+        generate_block(other_addr)
+        admins = json.loads(call_rpc('invokecontractoffline', [caller_addr, contract_addr, 'admins', " "])['result'])
+        print("admins after remove is ", admins)
+        self.assertEqual(admins, [caller_addr])
+
+        # test set_min_gas_price(change params)
+        invoke_contract_api(caller_addr, contract_addr, "set_min_gas_price",
+                            "20,1")
+        for i in range(10):
+            generate_block(caller_addr)
+        invoke_contract_api(caller_addr, contract_addr, "vote_change_param", "true")
+        generate_block(caller_addr)
+        min_gas_price = int(
+            call_rpc('invokecontractoffline', [caller_addr, contract_addr, 'min_gas_price', " "])['result'])
+        print("min_gas_price: ", min_gas_price)
+        self.assertEqual(min_gas_price, 20)
+
+        # test change params and vote false
+        invoke_contract_api(caller_addr, contract_addr, "set_min_gas_price",
+                            "30,1")
+        for i in range(10):
+            generate_block(caller_addr)
+        invoke_contract_api(caller_addr, contract_addr, "vote_change_param", "false")
+        generate_block(caller_addr)
+        min_gas_price = int(
+            call_rpc('invokecontractoffline', [caller_addr, contract_addr, 'min_gas_price', " "])['result'])
+        print("min_gas_price: ", min_gas_price)
+        self.assertEqual(min_gas_price, 20)
 
     def test_get_contract_info(self):
         print("test_get_contract_info")
@@ -498,7 +575,7 @@ class UbtcContractTests(unittest.TestCase):
              "withdraw".encode("utf8"),
              contract_addr.encode("utf8"),
              config['MAIN_USER_ADDRESS'].encode('utf8'),
-             5000, 40, OP_CALL])
+             5000, 10, OP_CALL])
         call_contract_script_hex = call_contract_script.hex()
         spend_contract_script = CScript([
             int(withdraw_amount * config['PRECISION']), contract_addr.encode('utf8'), OP_SPEND
@@ -620,7 +697,7 @@ class UbtcContractTests(unittest.TestCase):
         call_contract_script = CScript(
             [config['CONTRACT_VERSION'], "abc".encode('utf8'), "test_apis".encode('utf8'), contract_addr.encode("utf8"),
              config['MAIN_USER_ADDRESS'].encode('utf8'),
-             5000, 40, OP_CALL])
+             5000, 10, OP_CALL])
         call_contract_script_hex = call_contract_script.hex()
         call_contract_raw_tx = call_rpc('createrawtransaction', [
             [
@@ -657,15 +734,17 @@ class UbtcContractTests(unittest.TestCase):
         print("test_token_contract")
         admin_addr = config['MAIN_USER_ADDRESS']
 
-        for i in range(10):
+        for i in range(20):
             generate_block(other_addr)
+        for i in range(20):
+            generate_block(admin_addr)
 
         # create token contract
         utxo = get_utxo()
         bytecode_hex = read_contract_bytecode_hex("./token.gpc")
         register_contract_script = CScript(
             [config['CONTRACT_VERSION'], bytes().fromhex(bytecode_hex), config['MAIN_USER_ADDRESS'].encode('utf8'),
-             5000, 40, OP_CREATE])
+             5000, 10, OP_CREATE])
         create_contract_script = register_contract_script.hex()
         print("create_contract_script size %d" % len(create_contract_script))
         create_contract_raw_tx = call_rpc('createrawtransaction', [
