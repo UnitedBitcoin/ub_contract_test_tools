@@ -3,14 +3,18 @@ from __future__ import print_function
 import json
 import requests
 import random
+import math
+from decimal import Decimal
 import unittest
 from btcscriptencoder import *
+import ub_utils
 
 config = {
     'HOST': '192.168.1.148',
     'PORT': 60011,
-    'MAIN_USER_ADDRESS': 'mnaDtBNfPdgTASYoF3satsLh7wi9D9bS8Y',
-    'OTHER_USER_ADDRESS': 'mm4wMctRcKkgCqRZ7zzEFCFpm4rJUPN4a4',
+    'MODE': 'testnet',
+    'MAIN_USER_ADDRESS': 'n1UHVTwXw3TDT3gSwSuH6TqEpay1faoLBd',
+    'OTHER_USER_ADDRESS': 'mz3xJDKwjCyG7dpvCtVyyxx6Pfv5w1nBLZ',
     'PRECISION': 100000000,
     'CONTRACT_VERSION': b'\x01',
 }
@@ -21,8 +25,8 @@ if is_publictest:
     config = {
         'HOST': '13.251.64.171',
         'PORT': 60011,
-        'MAIN_USER_ADDRESS': 'mo4T1FvnYpmjqjs6Ba6QPBiybGYKDNmsJM',
-        'OTHER_USER_ADDRESS': 'n1eUi8Ad5EExZ9SJBrGLxzkuG4yUJopsgf',
+        'MAIN_USER_ADDRESS': 'mtnFj3hBxUxoU1VPjyoGAXwL5q8bxQG8r8',
+        'OTHER_USER_ADDRESS': 'mmUdKZ1VegWoCRNxyqtBqoLme9iRSyzJY8',
         'PRECISION': 100000000,
         'CONTRACT_VERSION': b'\x01',
     }
@@ -53,11 +57,19 @@ def call_rpc(method, params):
     return res['result']
 
 
-created_contract_addr = 'CON7c7N9b5EZgEBtXtZpKuHEDEAbQarMPcBL'
+created_contract_addr = 'CONM4X11Zz6nPhid8pqBrD8Ggv2v1tv5zrU5'
 
 if is_publictest:
     created_contract_addr = 'CONsjARn1hgB9TMUaoqAGyWU34g9qwj8fTP'
 
+
+def get_address_balance(addr):
+    utxos = call_rpc('listunspent', [])
+    sum = Decimal(0)
+    for utxo in utxos:
+        if utxo.get('address', None) == addr:
+            sum += Decimal(utxo.get('amount', 0))
+    return sum
 
 using_utxos = []
 
@@ -66,7 +78,7 @@ def get_utxo(caller_addr=None):
     if caller_addr is None:
         caller_addr = config['MAIN_USER_ADDRESS']
     utxos = call_rpc('listunspent', [])
-    having_amount_items = list(filter(lambda x: x.get('address', None) == caller_addr and float(x.get('amount')) > 0.5,
+    having_amount_items = list(filter(lambda x: x.get('address', None) == caller_addr and float(x.get('amount')) > 0.5 and float(x.get('amount')) < 50,  # FIXME
                                       utxos))
 
     def in_using(item):
@@ -97,15 +109,15 @@ def invoke_contract_api(caller_addr, contract_addr, api_name, api_arg, withdraw_
         withdraw_infos = {}
     for k, v in withdraw_infos.items():
         if k == caller_addr:
-            vouts[k] = "%.6f" % (float(vouts[k]) + v)
+            vouts[k] = "%.6f" % (float(vouts[k]) + float(v))
         else:
-            vouts[k] = "%.6f" % v
+            vouts[k] = "%.6f" % float(v)
     if withdraw_froms is None:
         withdraw_froms = {}
     spend_contract_all_script_hexs = []
     for withdraw_from_contract_addr, withdraw_amount in withdraw_froms.items():
         spend_contract_script = CScript([
-            int(withdraw_amount * config['PRECISION']), withdraw_from_contract_addr.encode('utf8'), OP_SPEND
+            int(Decimal(withdraw_amount) * config['PRECISION']), withdraw_from_contract_addr.encode('utf8'), OP_SPEND
         ])
         spend_contract_script_hex = spend_contract_script.hex()
         spend_contract_all_script_hexs.append(spend_contract_script_hex)
@@ -293,8 +305,22 @@ def deposit_to_contract(caller_addr, contract_addr, deposit_amount, deposit_memo
 
 
 class UbtcContractTests(unittest.TestCase):
+
+    def split_accounts(self):
+        account1 = ""
+        account2 = "a"
+        accounts = call_rpc('listaccounts', [])
+        if accounts[account1] > 5 * accounts[account2] and accounts[account1] > 21:
+            call_rpc('sendtoaddress', [config['OTHER_USER_ADDRESS'], 20])
+        if accounts[account1] > 5 * accounts[account2] and accounts[account1] > 41:
+            call_rpc('sendtoaddress', [config['OTHER_USER_ADDRESS'], 20])
+        if accounts[account1] > 5 * accounts[account2] and accounts[account1] > 61:
+            call_rpc('sendtoaddress', [config['OTHER_USER_ADDRESS'], 20])
+        generate_block(config['MAIN_USER_ADDRESS'])
+
     def test_create_contract(self):
         print("test_create_contract")
+        self.split_accounts()
         new_contract_addr = create_new_contract("./test.gpc")
         generate_block()
         print("new contract address: %s" % new_contract_addr)
@@ -302,6 +328,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_create_native_contract(self):
         print("test_create_native_contract")
+        self.split_accounts()
         new_contract_addr = create_new_native_contract('demo')
         generate_block()
         print("new contract address: %s" % new_contract_addr)
@@ -309,6 +336,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_demo_native_contract(self):
         print("test_create_native_contract")
+        self.split_accounts()
         caller_addr = config['MAIN_USER_ADDRESS']
         res = call_rpc("registernativecontracttesting", [caller_addr, 'demo'])
         self.assertTrue(res['gasCount'] > 0)
@@ -328,6 +356,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_dgp_native_contract(self):
         print("test_create_native_contract")
+        self.split_accounts()
         caller_addr = config['MAIN_USER_ADDRESS']
         res = call_rpc("registernativecontracttesting", [caller_addr, 'dgp'])
         self.assertTrue(res['gasCount'] > 0)
@@ -354,7 +383,7 @@ class UbtcContractTests(unittest.TestCase):
         invoke_contract_api(caller_addr, contract_addr, "create_change_admin_proposal",
                             json.dumps({"address": other_addr, "add": False, "needAgreeCount": 2}))
         # wait proposal votable for 10 blocks
-        for i in range(10):
+        for i in range(120):
             generate_block(other_addr)
         invoke_contract_api(caller_addr, contract_addr, "vote_admin", "true")
         invoke_contract_api(other_addr, contract_addr, "vote_admin", "true")
@@ -389,6 +418,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_get_contract_info(self):
         print("test_get_contract_info")
+        self.split_accounts()
         contract_addr = created_contract_addr
         contract_info = call_rpc('getcontractinfo', [contract_addr])
         print(contract_info)
@@ -406,6 +436,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_get_current_root_state_hash(self):
         print("test_get_current_root_state_hash")
+        self.split_accounts()
         root_state_hash = call_rpc('currentrootstatehash', [])
         print("current root_state_hash: ", root_state_hash)
         height = call_rpc('getblockcount', [])
@@ -420,6 +451,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_call_contract_query_storage(self):
         print("test_call_contract_query_storage")
+        self.split_accounts()
         contract_addr = created_contract_addr
         contract = call_rpc('getcontractinfo', [contract_addr])
         print("contract info: ", contract)
@@ -433,6 +465,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_call_contract_once_api(self):
         print("test_call_contract_once_api")
+        self.split_accounts()
         # contract_addr = created_contract_addr
         contract_addr = create_new_contract("./test.gpc")
         print(contract_addr)
@@ -451,6 +484,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_call_contract_offline(self):
         print("test_call_contract_offline")
+        self.split_accounts()
         contract_addr = created_contract_addr
         contract = call_rpc('getcontractinfo', [contract_addr])
         print("contract info: ", contract)
@@ -464,6 +498,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_import_contract_by_address(self):
         print("test_import_contract_by_address")
+        self.split_accounts()
         contract_addr = created_contract_addr
         invoke_res = call_rpc('invokecontractoffline', [
             config['MAIN_USER_ADDRESS'], contract_addr, "import_contract_by_address_demo", "%s" % contract_addr,
@@ -475,6 +510,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_register_contract_testing(self):
         print("test_register_contract_testing")
+        self.split_accounts()
         bytecode_hex = read_contract_bytecode_hex("./test.gpc")
         invoke_res = call_rpc('registercontracttesting', [
             config['MAIN_USER_ADDRESS'], bytecode_hex,
@@ -485,6 +521,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_upgrade_contract_testing(self):
         print("test_upgrade_contract_testing")
+        self.split_accounts()
         contract_addr = self.test_create_contract()
         contract_name = "contract_name_%d" % random.randint(1, 99999999)
         invoke_res = call_rpc('upgradecontracttesting', [
@@ -496,6 +533,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_deposit_to_contract_testing(self):
         print("test_deposit_to_contract_testing")
+        self.split_accounts()
         invoke_res = call_rpc('deposittocontracttesting', [
             config['MAIN_USER_ADDRESS'], created_contract_addr, 10, 'this is deposit memo',
         ])
@@ -505,6 +543,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_get_transaction_contract_events(self):
         print("test_get_transaction_contract_events")
+        self.split_accounts()
         invoke_res = call_rpc('gettransactionevents', [
             '939421f700919cf1388c63c3e7dbfd79db432f9aa6e1e388bd31f42ed20025cb',
         ])
@@ -512,6 +551,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_call_contract_api(self):
         print("test_call_contract_api")
+        self.split_accounts()
         contract_addr = created_contract_addr
         contract = call_rpc('getcontractinfo', [contract_addr])
         print("contract info: ", contract)
@@ -523,6 +563,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_call_error_contract_api(self):
         print("test_call_error_contract_api")
+        self.split_accounts()
         contract_addr = created_contract_addr
         contract = call_rpc('getcontractinfo', [contract_addr])
         print("contract info: ", contract)
@@ -536,6 +577,8 @@ class UbtcContractTests(unittest.TestCase):
 
     def deposit_to_contract(self, mine=True):
         print("deposit_to_contract")
+        if mine:
+            self.split_accounts()
         caller_addr = config['MAIN_USER_ADDRESS']
         contract_addr = created_contract_addr
         contract = call_rpc('getcontractinfo', [contract_addr])
@@ -562,58 +605,21 @@ class UbtcContractTests(unittest.TestCase):
         print("multi_contract_balance_change")
         # TODO
 
-    def withdraw_from_contract(self, mine=True, withdraw_to_addr='18reta1dM4EkvGwWGjztSu6T48YLYPvWd'):
+    def withdraw_from_contract(self, mine=True, withdraw_to_addr='myZmHY7LAaTEis6MY3rdLy5imnky1sSVEz'):
         print("withdraw_from_contract")
+        if mine:
+            self.split_accounts()
         contract_addr = created_contract_addr
         contract = call_rpc('getcontractinfo', [contract_addr])
         print("contract info: ", contract)
-        account_balance_before_withdraw = call_rpc('listaccounts', [])[""]
-        utxo = get_utxo()
-        withdraw_amount = 0.3
-        call_contract_script = CScript(
-            [config['CONTRACT_VERSION'], str(int(withdraw_amount * config['PRECISION'])).encode("utf8"),
-             "withdraw".encode("utf8"),
-             contract_addr.encode("utf8"),
-             config['MAIN_USER_ADDRESS'].encode('utf8'),
-             5000, 10, OP_CALL])
-        call_contract_script_hex = call_contract_script.hex()
-        spend_contract_script = CScript([
-            int(withdraw_amount * config['PRECISION']), contract_addr.encode('utf8'), OP_SPEND
-        ])
-        spend_contract_script_hex = spend_contract_script.hex()
+        account_balance_before_withdraw = get_address_balance(config['MAIN_USER_ADDRESS'])
+        withdraw_amount = "0.3"
+        res = invoke_contract_api(config['MAIN_USER_ADDRESS'], contract_addr, "withdraw", str(int(Decimal(withdraw_amount) * config['PRECISION'])), {
+            withdraw_to_addr: Decimal(withdraw_amount)
+        }, {
+            contract_addr: Decimal(withdraw_amount)
+        })
         fee = 0.01
-        vouts = {
-            config['MAIN_USER_ADDRESS']: "%.6f" % (utxo['amount'] - fee),
-            'contract': call_contract_script_hex,
-            'spend_contract': [spend_contract_script_hex],
-        }
-        if withdraw_to_addr != config['MAIN_USER_ADDRESS']:
-            vouts[withdraw_to_addr] = withdraw_amount
-        else:
-            vouts[config['MAIN_USER_ADDRESS']] = "%.6f" % (utxo['amount'] - fee + withdraw_amount)
-        call_contract_raw_tx = call_rpc('createrawtransaction', [
-            [
-                {
-                    'txid': utxo['txid'],
-                    'vout': utxo['vout'],
-                },
-            ],
-            vouts,
-        ])
-        signed_call_contract_raw_tx_res = call_rpc('signrawtransaction', [
-            call_contract_raw_tx,
-            [
-                {
-                    'txid': utxo['txid'],
-                    'vout': utxo['vout'],
-                    'scriptPubKey': utxo['scriptPubKey'],
-                },
-            ],
-        ])
-        self.assertEqual(signed_call_contract_raw_tx_res.get('complete', None), True)
-        signed_call_contract_raw_tx = signed_call_contract_raw_tx_res.get('hex')
-        print(signed_call_contract_raw_tx)
-        res = call_rpc('sendrawtransaction', [signed_call_contract_raw_tx])
         print("txid: ", res)
         if mine:
             mine_res = call_rpc('generatetoaddress', [
@@ -626,7 +632,7 @@ class UbtcContractTests(unittest.TestCase):
                 config['MAIN_USER_ADDRESS'], contract_addr, "query_money", "",
             ])
             print("storage.money after withdraw: ", invoke_res)
-            account_balance_after_withdraw = call_rpc('listaccounts', [])[""]
+            account_balance_after_withdraw = get_address_balance(config['MAIN_USER_ADDRESS'])
             print("account change of withdraw-from-contract: %f to %f" % (
                 account_balance_before_withdraw, account_balance_after_withdraw))
             mine_reward = 50
@@ -635,6 +641,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_upgrade_contract(self):
         print("test_upgrade_contract")
+        self.split_accounts()
         contract_addr = self.test_create_contract()
         contract = call_rpc('getcontractinfo', [contract_addr])
         print("contract info: ", contract)
@@ -644,41 +651,52 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_many_contract_invokes_in_one_block(self):
         print("test_many_contract_invokes_in_one_block")
+        self.split_accounts()
+        caller_addr = config['MAIN_USER_ADDRESS']
         contract_addr = created_contract_addr
         contract = call_rpc('getsimplecontractinfo', [contract_addr])
         n1 = 10
         n2 = 10
         # if contract balance not enough to withdraw, need to deposit some to it before test
         if len(contract['balances']) < 1 or contract['balances'][0]['amount'] < (n2 * 0.3):
-            deposit_to_contract(config['MAIN_USER_ADDRESS'], contract_addr, n2 * 0.3, "memo1234")
-            generate_block(config['MAIN_USER_ADDRESS'])
-        account_balance_before_withdraw = call_rpc('listaccounts', [])[""]
+            deposit_to_contract(caller_addr, contract_addr, n2 * 0.3, "memo1234")
+            generate_block(caller_addr)
+
+        # make sure coins mature
+        for i in range(100):
+            mine_res = generate_block(other_addr)
+
+        account_balance_before_withdraw = get_address_balance(caller_addr)
         fee = 0.01
+        # invoke_contract_api(caller_addr, contract_addr, "hello", "abc", None, None)
         for i in range(n1):
             self.deposit_to_contract(False)
         for i in range(n2):
             self.withdraw_from_contract(False, config['MAIN_USER_ADDRESS'])
-        mine_res = call_rpc('generatetoaddress', [
-            1, config['MAIN_USER_ADDRESS'], 1000000,
-        ])
+        mine_res = generate_block(caller_addr)
+        mine_block_id = mine_res[0]
+        block = call_rpc('getblock', [mine_block_id])
+        mine_reward = ub_utils.calc_block_reward(config['MODE'], block['height']) * 1.0 / ub_utils.COIN
         print("mine res: ", mine_res)
+        print('mine reward: %s' % str(mine_reward))
         contract_info = call_rpc('getcontractinfo', [contract_addr])
         print("contract_info after withdraw is: ", contract_info)
         invoke_res = call_rpc('invokecontractoffline', [
-            config['MAIN_USER_ADDRESS'], contract_addr, "query_money", "",
+            caller_addr, contract_addr, "query_money", "",
         ])
         print("storage.money after many deposits and withdraws: ", invoke_res)
-        account_balance_after_withdraw = call_rpc('listaccounts', [])[""]
+        for i in range(100):
+            mine_res = generate_block(other_addr)
+        account_balance_after_withdraw = get_address_balance(caller_addr)
         print("account change of withdraw-from-contract: %f to %f" % (
             account_balance_before_withdraw, account_balance_after_withdraw))
-        mine_reward = 50
         self.assertEqual(
-            "%.6f" % (account_balance_before_withdraw + mine_reward - fee * (n1 * 2 + n2) - 0.3 * n1 + 0.3 * n2,),
+            "%.6f" % (account_balance_before_withdraw + Decimal(mine_reward - 0.3 * n1 + 0.3 * n2),),
             "%.6f" % account_balance_after_withdraw)
-        print("withdrawed amount is %.6f" % (0.3 * n2))
 
     def test_gas_not_enough(self):
         print("test_gas_not_enough")
+        self.split_accounts()
         contract_addr = created_contract_addr
         contract = call_rpc('getcontractinfo', [contract_addr])
         print("contract info: ", contract)
@@ -690,6 +708,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_global_apis(self):
         print("test_global_apis")
+        self.split_accounts()
         contract_addr = created_contract_addr
         contract = call_rpc('getcontractinfo', [contract_addr])
         print("contract info: ", contract)
@@ -732,6 +751,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_token_contract(self):
         print("test_token_contract")
+        self.split_accounts()
         admin_addr = config['MAIN_USER_ADDRESS']
 
         for i in range(20):
@@ -878,6 +898,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_price_feeder_contract(self):
         print("test_price_feeder_contract")
+        self.split_accounts()
         caller_addr = config['MAIN_USER_ADDRESS']
         contract = None
         try:
@@ -943,6 +964,7 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_constant_value_token_contract(self):
         print("test_constant_value_token_contract")
+        self.split_accounts()
         self.test_price_feeder_contract()
         caller_addr = config['MAIN_USER_ADDRESS']
         contract_addr = create_new_contract("./any_mortgage_token.gpc")
