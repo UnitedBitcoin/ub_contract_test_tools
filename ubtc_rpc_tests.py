@@ -11,7 +11,7 @@ import ub_utils
 
 config = {
     'HOST': '192.168.1.148',
-    'PORT': 60011, # 60011,
+    'PORT': 60011,  # 60011,
     'MODE': 'regtest',
     'MAIN_USER_ADDRESS': '2MyAK5GP63nYmG2PV7XvM6gUp6CeVbt767U',
     'OTHER_USER_ADDRESS': '2N72cGW4Qq8QZ4S25RkZsQQFWpKW4aWng5c',
@@ -71,6 +71,7 @@ def get_address_balance(addr):
             sum += Decimal(utxo.get('amount', 0))
     return sum
 
+
 using_utxos = []
 
 
@@ -78,8 +79,10 @@ def get_utxo(caller_addr=None):
     if caller_addr is None:
         caller_addr = config['MAIN_USER_ADDRESS']
     utxos = call_rpc('listunspent', [])
-    having_amount_items = list(filter(lambda x: x.get('address', None) == caller_addr and float(x.get('amount')) > 0.5 and float(x.get('amount')) <= 50,
-                                      utxos))
+    having_amount_items = list(filter(
+        lambda x: x.get('address', None) == caller_addr and float(x.get('amount')) > 0.5 and float(
+            x.get('amount')) <= 50,
+        utxos))
 
     def in_using(item):
         for utxo in using_utxos:
@@ -149,6 +152,7 @@ def invoke_contract_api(caller_addr, contract_addr, api_name, api_arg, withdraw_
     res = call_rpc('sendrawtransaction', [signed_call_contract_raw_tx])
     return res
 
+
 def testing_then_invoke_contract_api(caller_addr, contract_addr, api_name, api_arg):
     testing_res = call_rpc('invokecontractoffline', [caller_addr, contract_addr, api_name, api_arg])
     print(testing_res)
@@ -161,7 +165,8 @@ def testing_then_invoke_contract_api(caller_addr, contract_addr, api_name, api_a
         if not change["is_contract"] and change["is_add"]:
             withdraw_infos[change["address"]] = change["amount"] * 1.0 / config["PRECISION"]
     return invoke_contract_api(caller_addr, contract_addr, api_name, api_arg,
-                        withdraw_infos, withdraw_from_infos)
+                               withdraw_infos, withdraw_from_infos)
+
 
 def generate_block(miner=None):
     if miner is None:
@@ -204,6 +209,7 @@ def create_new_contract(contract_bytecode_path):
     ])
     assert (signed_create_contract_raw_tx_res.get('complete', None) is True)
     signed_create_contract_raw_tx = signed_create_contract_raw_tx_res.get('hex')
+    # print("decoded tx: ", call_rpc('decoderawtransaction', [signed_create_contract_raw_tx]))
     call_rpc('sendrawtransaction', [signed_create_contract_raw_tx])
     contract_addr = call_rpc('getcreatecontractaddress', [
         signed_create_contract_raw_tx
@@ -316,7 +322,7 @@ def deposit_to_contract(caller_addr, contract_addr, deposit_amount, deposit_memo
             {
                 'txid': utxo['txid'],
                 'vout': utxo['vout'],
-                 'amount': utxo['amount'],
+                'amount': utxo['amount'],
                 'scriptPubKey': utxo['scriptPubKey'],
                 'redeemScript': utxo.get('redeemScript', None),
             },
@@ -328,7 +334,6 @@ def deposit_to_contract(caller_addr, contract_addr, deposit_amount, deposit_memo
 
 
 class UbtcContractTests(unittest.TestCase):
-
     def split_accounts(self):
         account1 = ""
         account2 = "a"
@@ -370,10 +375,12 @@ class UbtcContractTests(unittest.TestCase):
         admins = json.loads(call_rpc('invokecontractoffline', [caller_addr, contract_addr, 'admins', " "])['result'])
         print("admins after init is ", admins)
         self.assertEqual(admins, [caller_addr])
-        min_gas_price = int(call_rpc('invokecontractoffline', [caller_addr, contract_addr, 'min_gas_price', " "])['result'])
+        min_gas_price = int(
+            call_rpc('invokecontractoffline', [caller_addr, contract_addr, 'min_gas_price', " "])['result'])
         print("min_gas_price: ", min_gas_price)
         self.assertEqual(min_gas_price, 10)
-        invoke_contract_api(caller_addr, contract_addr, "create_change_admin_proposal", json.dumps({"address": other_addr, "add": True, "needAgreeCount": 1}))
+        invoke_contract_api(caller_addr, contract_addr, "create_change_admin_proposal",
+                            json.dumps({"address": other_addr, "add": True, "needAgreeCount": 1}))
         # wait proposal votable for 10 blocks
         for i in range(10):
             generate_block(caller_addr)
@@ -617,11 +624,12 @@ class UbtcContractTests(unittest.TestCase):
         print("contract info: ", contract)
         account_balance_before_withdraw = get_address_balance(config['MAIN_USER_ADDRESS'])
         withdraw_amount = "0.3"
-        res = invoke_contract_api(config['MAIN_USER_ADDRESS'], contract_addr, "withdraw", str(int(Decimal(withdraw_amount) * config['PRECISION'])), {
-            withdraw_to_addr: Decimal(withdraw_amount)
-        }, {
-            contract_addr: Decimal(withdraw_amount)
-        })
+        res = invoke_contract_api(config['MAIN_USER_ADDRESS'], contract_addr, "withdraw",
+                                  str(int(Decimal(withdraw_amount) * config['PRECISION'])), {
+                                      withdraw_to_addr: Decimal(withdraw_amount)
+                                  }, {
+                                      contract_addr: Decimal(withdraw_amount)
+                                  })
         fee = 0.01
         print("txid: ", res)
         if mine:
@@ -739,7 +747,7 @@ class UbtcContractTests(unittest.TestCase):
                 {
                     'txid': utxo['txid'],
                     'vout': utxo['vout'],
-                     'amount': utxo['amount'],
+                    'amount': utxo['amount'],
                     'scriptPubKey': utxo['scriptPubKey'],
                     'redeemScript': utxo.get('redeemScript', None),
                 },
@@ -913,11 +921,13 @@ class UbtcContractTests(unittest.TestCase):
         assert call_rpc('invokecontractoffline', [
             caller_addr, contract_addr, "admin", " ",
         ])['result'] == caller_addr
-        invoke_contract_api(caller_addr, contract_addr, "add_reward_user", "%s,%d" % (other_addr, 1 * config['PRECISION']), {}, {})
+        invoke_contract_api(caller_addr, contract_addr, "add_reward_user",
+                            "%s,%d" % (other_addr, 1 * config['PRECISION']), {}, {})
         generate_block(caller_addr)
         deposit_to_contract(caller_addr, contract_addr, 1.1, "memo123")
         generate_block(caller_addr)
-        assert call_rpc('getsimplecontractinfo', [contract_addr])['balances'][0]['amount'] == int(1.1*config['PRECISION'])
+        assert call_rpc('getsimplecontractinfo', [contract_addr])['balances'][0]['amount'] == int(
+            1.1 * config['PRECISION'])
         old_balance_of_address2 = get_address_balance(other_addr)
         res = testing_then_invoke_contract_api(caller_addr, contract_addr, "send_rewards", "10")
         print(res)
@@ -926,10 +936,40 @@ class UbtcContractTests(unittest.TestCase):
         print("old_balance_of_address2: ", old_balance_of_address2)
         print("balance_of_address2_after_send_rewards: ", balance_of_address2_after_send_rewards)
         assert Decimal(old_balance_of_address2) + Decimal(1) == Decimal(balance_of_address2_after_send_rewards)
-        testing_then_invoke_contract_api(caller_addr, contract_addr, "withdraw", "%d" % int(0.1*config['PRECISION']))
+        testing_then_invoke_contract_api(caller_addr, contract_addr, "withdraw", "%d" % int(0.1 * config['PRECISION']))
         generate_block(caller_addr)
         contract_balances = call_rpc('getsimplecontractinfo', [contract_addr])['balances']
         assert len(contract_balances) < 1 or contract_balances[0]['amount'] == 0
+
+    def test_create_contract_rpc(self):
+        print("test_create_contract_rpc")
+        self.split_accounts()
+        caller_addr = config['MAIN_USER_ADDRESS']
+        bytecode_hex = read_contract_bytecode_hex('./test.gpc')
+        signed_create_contract_tx = call_rpc('createcontract', [caller_addr, bytecode_hex, 5000, 10, 0.001])
+        print("signed_create_contract_tx: ", signed_create_contract_tx)
+        decoded_create_contract_tx = call_rpc('decoderawtransaction', [signed_create_contract_tx])
+        print("decoded_create_contract_tx: ", decoded_create_contract_tx)
+        contract_addr = call_rpc('getcreatecontractaddress', [signed_create_contract_tx])['address']
+        print("contract addr: ", contract_addr)
+        call_rpc('sendrawtransaction', [signed_create_contract_tx])
+        generate_block(caller_addr)
+        print("contract: ", call_rpc('getsimplecontractinfo', [contract_addr]))
+
+        deposit_to_contract(caller_addr, contract_addr, 1)
+        generate_block(caller_addr)
+        contract = call_rpc('getsimplecontractinfo', [contract_addr])
+        print(contract)
+        assert len(contract['balances'])>0 and contract['balances'][0]['amount'] == 1*config['PRECISION']
+
+        signed_call_contract_tx = call_rpc('callcontract',
+                                           [caller_addr, contract_addr, "withdraw", "%d" % int(0.5 * config['PRECISION']), 5000, 10, 0.005])
+        call_rpc('sendrawtransaction', [signed_call_contract_tx])
+        generate_block(caller_addr)
+        contract = call_rpc('getsimplecontractinfo', [contract_addr])
+        assert(contract['balances'][0]['amount'] == int(0.5*config['PRECISION']))
+        print("called contract withdraw api successfully")
+
 
     def test_price_feeder_contract(self):
         print("test_price_feeder_contract")
