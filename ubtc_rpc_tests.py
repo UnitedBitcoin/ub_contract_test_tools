@@ -13,8 +13,8 @@ config = {
     'HOST': '192.168.1.148',
     'PORT': 60011,  # 60011,
     'MODE': 'regtest',
-    'MAIN_USER_ADDRESS': '2MyAK5GP63nYmG2PV7XvM6gUp6CeVbt767U',
-    'OTHER_USER_ADDRESS': '2N72cGW4Qq8QZ4S25RkZsQQFWpKW4aWng5c',
+    'MAIN_USER_ADDRESS': '2N2akJDGx9uvTnG7BMxxXvBFxS3tvh9dqEi', # '2N52dVSYLoPkZMaaipqsYayZMkTwqos3PZ6',  # '2MyAK5GP63nYmG2PV7XvM6gUp6CeVbt767U',  tb1qdl3slyksmghxnnvvmvkx9kapq94g2u3pzn2z7a
+    'OTHER_USER_ADDRESS': '2MzzfyNrkHrqoJvjHoAbnuWDESUTcLxhFWf', # '2NEUq3FqvF2k6U5SkuUbEfXKqKZ9QfJCj5M',
     'PRECISION': 100000000,
     'CONTRACT_VERSION': b'\x01',
 }
@@ -25,8 +25,8 @@ if is_publictest:
     config = {
         'HOST': '13.251.64.171',
         'PORT': 60011,
-        'MAIN_USER_ADDRESS': 'mg7egEAnbiUWBrRdcsAoeGVrKBGbopfsha',
-        'OTHER_USER_ADDRESS': 'mwGSEdpvoKNw7JHL2GJGn4ZUVugteauR57',
+        'MAIN_USER_ADDRESS': '2Mu4UwVJ57pZVjWg3gHQpV3Vs8jCczAtK3d',
+        'OTHER_USER_ADDRESS': '2N6kX4wDiWEGPWPqJRW9TkTFeZ2k784A2Pn',
         'PRECISION': 100000000,
         'CONTRACT_VERSION': b'\x01',
     }
@@ -57,10 +57,10 @@ def call_rpc(method, params):
     return res['result']
 
 
-created_contract_addr = 'CONKE6J5ejXahHnmTZHxbpXf33zC3qoPicbw'
+created_contract_addr = 'CONK42dn3fv9fD3Ne29PDVvrcEkyJue3Kmry' # 'CON9W1XVjQzVQJvfnSJNK4YaJmxxa8QGSSpA'
 
 if is_publictest:
-    created_contract_addr = 'CONsjARn1hgB9TMUaoqAGyWU34g9qwj8fTP'
+    created_contract_addr = 'CONGe295ZZfw8fNpePqKNYUFfthsTKcghQq'
 
 
 def get_address_balance(addr):
@@ -80,8 +80,7 @@ def get_utxo(caller_addr=None):
         caller_addr = config['MAIN_USER_ADDRESS']
     utxos = call_rpc('listunspent', [])
     having_amount_items = list(filter(
-        lambda x: x.get('address', None) == caller_addr and float(x.get('amount')) > 0.5 and float(
-            x.get('amount')) <= 50,
+        lambda x: x.get('address', None) == caller_addr and float(x.get('amount')) > 0.5,
         utxos))
 
     def in_using(item):
@@ -101,7 +100,7 @@ def invoke_contract_api(caller_addr, contract_addr, api_name, api_arg, withdraw_
     call_contract_script = CScript(
         [config['CONTRACT_VERSION'], api_arg.encode('utf8'), api_name.encode('utf8'), contract_addr.encode("utf8"),
          caller_addr.encode('utf8'),
-         5000, 10, OP_CALL])
+         10000, 10, OP_CALL])
     call_contract_script_hex = call_contract_script.hex()
     fee = 0.01
     vouts = {
@@ -175,12 +174,11 @@ def generate_block(miner=None):
         1, miner, 1000000,
     ])
 
-
 def create_new_contract(contract_bytecode_path):
     utxo = get_utxo()
     bytecode_hex = read_contract_bytecode_hex(contract_bytecode_path)
     register_contract_script = CScript(
-        [config['CONTRACT_VERSION'], bytes().fromhex(bytecode_hex), config['MAIN_USER_ADDRESS'].encode('utf8'), 5000,
+        [config['CONTRACT_VERSION'], bytes().fromhex(bytecode_hex), config['MAIN_USER_ADDRESS'].encode('utf8'), 10000,
          10, OP_CREATE])
     create_contract_script = register_contract_script.hex()
     create_contract_raw_tx = call_rpc('createrawtransaction', [
@@ -209,6 +207,7 @@ def create_new_contract(contract_bytecode_path):
     ])
     assert (signed_create_contract_raw_tx_res.get('complete', None) is True)
     signed_create_contract_raw_tx = signed_create_contract_raw_tx_res.get('hex')
+    # print(signed_create_contract_raw_tx)
     # print("decoded tx: ", call_rpc('decoderawtransaction', [signed_create_contract_raw_tx]))
     call_rpc('sendrawtransaction', [signed_create_contract_raw_tx])
     contract_addr = call_rpc('getcreatecontractaddress', [
@@ -774,10 +773,10 @@ class UbtcContractTests(unittest.TestCase):
 
         # create token contract
         utxo = get_utxo()
-        bytecode_hex = read_contract_bytecode_hex("./token.gpc")
+        bytecode_hex = read_contract_bytecode_hex("./newtoken.gpc")
         register_contract_script = CScript(
             [config['CONTRACT_VERSION'], bytes().fromhex(bytecode_hex), config['MAIN_USER_ADDRESS'].encode('utf8'),
-             5000, 10, OP_CREATE])
+             10000, 10, OP_CREATE])
         create_contract_script = register_contract_script.hex()
         print("create_contract_script size %d" % len(create_contract_script))
         create_contract_raw_tx = call_rpc('createrawtransaction', [
@@ -808,11 +807,11 @@ class UbtcContractTests(unittest.TestCase):
         signed_create_contract_raw_tx = signed_create_contract_raw_tx_res.get('hex')
         print(signed_create_contract_raw_tx)
         call_rpc('sendrawtransaction', [signed_create_contract_raw_tx])
-        generate_block()
         contract_addr = call_rpc('getcreatecontractaddress', [
             signed_create_contract_raw_tx
         ])['address']
         print("new contract address: %s" % contract_addr)
+        generate_block()
         contract = call_rpc('getcontractinfo', [contract_addr])
         print("contract info: ", contract)
         print("create contract of token tests passed")
@@ -943,9 +942,10 @@ class UbtcContractTests(unittest.TestCase):
 
     def test_create_contract_rpc(self):
         print("test_create_contract_rpc")
-        self.split_accounts()
+        # self.split_accounts()
         caller_addr = config['MAIN_USER_ADDRESS']
         bytecode_hex = read_contract_bytecode_hex('./test.gpc')
+        # print(bytecode_hex)
         signed_create_contract_tx = call_rpc('createcontract', [caller_addr, bytecode_hex, 5000, 10, 0.001])
         print("signed_create_contract_tx: ", signed_create_contract_tx)
         decoded_create_contract_tx = call_rpc('decoderawtransaction', [signed_create_contract_tx])
@@ -1042,7 +1042,7 @@ class UbtcContractTests(unittest.TestCase):
         self.split_accounts()
         self.test_price_feeder_contract()
         caller_addr = config['MAIN_USER_ADDRESS']
-        contract_addr = create_new_contract("./any_mortgage_token.gpc")
+        contract_addr = create_new_contract("./new_any_mortgage_token.gpc")
         generate_block(caller_addr)
         state = call_rpc('invokecontractoffline', [
             caller_addr, contract_addr, "state", " ",
@@ -1120,10 +1120,24 @@ class UbtcContractTests(unittest.TestCase):
         print("mortgage_balance after withdraw: ", mortgage_balance)
         self.assertEqual(mortgage_balance, 5 * config['PRECISION'])
 
+    def test_big_data(self):
+        print("test_big_data")
+        self.split_accounts()
+        caller_addr = config['MAIN_USER_ADDRESS']
+        contract_addr = create_new_contract('./test_big_data.gpc')
+        generate_block(caller_addr)
+        print("test big data contract: ", contract_addr)
+        try:
+            invoke_res = call_rpc('invokecontractoffline', [
+                config['MAIN_USER_ADDRESS'], contract_addr, "fastwrite_bigdata", "1111111111111111111",
+            ])
+            self.assertTrue(False, 'need out of gas but not')
+        except Exception as e:
+            print(e)
+
 
 def main():
     unittest.main()
-
 
 if __name__ == '__main__':
     main()
