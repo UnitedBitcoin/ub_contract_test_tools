@@ -13,8 +13,8 @@ config = {
     'HOST': '192.168.1.148',
     'PORT': 60011,  # 60011,
     'MODE': 'regtest',
-    'MAIN_USER_ADDRESS': '2N2akJDGx9uvTnG7BMxxXvBFxS3tvh9dqEi', # '2N52dVSYLoPkZMaaipqsYayZMkTwqos3PZ6',  # '2MyAK5GP63nYmG2PV7XvM6gUp6CeVbt767U',  tb1qdl3slyksmghxnnvvmvkx9kapq94g2u3pzn2z7a
-    'OTHER_USER_ADDRESS': '2MzzfyNrkHrqoJvjHoAbnuWDESUTcLxhFWf', # '2NEUq3FqvF2k6U5SkuUbEfXKqKZ9QfJCj5M',
+    'MAIN_USER_ADDRESS': '2N3xvkwdc6WkHiGjETFWtZBgWbnSwJ8wGdX', # '2N52dVSYLoPkZMaaipqsYayZMkTwqos3PZ6',  # '2MyAK5GP63nYmG2PV7XvM6gUp6CeVbt767U',  tb1qdl3slyksmghxnnvvmvkx9kapq94g2u3pzn2z7a
+    'OTHER_USER_ADDRESS': '2NBc3YdT7bgyJbS3shDUeuSGRfj1vNvrtdK', # '2NEUq3FqvF2k6U5SkuUbEfXKqKZ9QfJCj5M',
     'PRECISION': 100000000,
     'CONTRACT_VERSION': b'\x01',
 }
@@ -57,7 +57,7 @@ def call_rpc(method, params):
     return res['result']
 
 
-created_contract_addr = 'CONK42dn3fv9fD3Ne29PDVvrcEkyJue3Kmry' # 'CON9W1XVjQzVQJvfnSJNK4YaJmxxa8QGSSpA'
+created_contract_addr = 'CON9xp1KFJZ8H3KeeSHdJ4QKsqYRiHJ9fXGm' # 'CON9W1XVjQzVQJvfnSJNK4YaJmxxa8QGSSpA'
 
 if is_publictest:
     created_contract_addr = 'CONGe295ZZfw8fNpePqKNYUFfthsTKcghQq'
@@ -298,7 +298,7 @@ def upgrade_contract(contract_addr, contract_name, contract_desc, caller_addr=No
 def deposit_to_contract(caller_addr, contract_addr, deposit_amount, deposit_memo=" "):
     utxo = get_utxo()
     call_contract_script = CScript(
-        [config['CONTRACT_VERSION'], deposit_memo.encode('utf8'), int(deposit_amount * config['PRECISION']),
+        [config['CONTRACT_VERSION'], deposit_memo.encode('utf8'), CScriptNum(deposit_amount * config['PRECISION']),
          contract_addr.encode("utf8"),
          caller_addr.encode('utf8'),
          5000, 10, OP_DEPOSIT_TO_CONTRACT])
